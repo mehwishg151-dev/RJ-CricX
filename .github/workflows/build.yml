@@ -1,0 +1,1252 @@
+name: Build RJ CricX Android App
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Generate APK and Play Store AAB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Step 1: Sabse Pehle Poora Project Structure & Source Code Ready Karna
+      - name: Setup RJ CricX Project and Code
+        run: |
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat << 'EOF' > settings.gradle.kts
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "RJ-CricX"
+          include(":app")
+          EOF
+
+          cat << 'EOF' > build.gradle.kts
+          plugins {
+              id("com.android.application") version "8.2.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+          }
+          EOF
+
+          mkdir -p app/src/main/java/com/rjcricx
+          mkdir -p app/src/main/res/values
+          touch app/proguard-rules.pro
+
+          cat << 'EOF' > app/build.gradle.kts
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.rjcricx"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.rjcricx"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0.0"
+              }
+
+              signingConfigs {
+                  create("release") {
+                      storeFile = file("../playstore-release.keystore")
+                      storePassword = "CricXPass@2026"
+                      keyAlias = "rjcricx"
+                      keyPassword = "CricXPass@2026"
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      signingConfig = signingConfigs.getByName("release")
+                  }
+                  debug {
+                      signingConfig = signingConfigs.getByName("release")
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+              buildFeatures {
+                  compose = true
+              }
+              composeOptions {
+                  kotlinCompilerExtensionVersion = "1.5.8"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.12.0")
+              implementation("androidx.activity:activity-compose:1.8.2")
+              implementation("androidx.compose.ui:ui:1.5.4")
+              implementation("androidx.compose.ui:ui-graphics:1.5.4")
+              implementation("androidx.compose.ui:ui-tooling-preview:1.5.4")
+              implementation("androidx.compose.material3:material3:1.1.2")
+              implementation("androidx.compose.animation:animation:1.5.4")
+              implementation("androidx.compose.foundation:foundation:1.5.4")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <application
+                  android:allowBackup="true"
+                  android:label="RJ CricX"
+                  android:supportsRtl="true"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/values/strings.xml
+          <resources>
+              <string name="app_name">RJ CricX</string>
+          </resources>
+          EOF
+
+          # MAIN ACTIVITY WITH CRICHEROES-GRADE SCORECARD, CELEBRATIONS & STRIKE RATE
+          cat << 'EOF' > app/src/main/java/com/rjcricx/MainActivity.kt
+          package com.rjcricx
+
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.animation.*
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.border
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.LazyRow
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.foundation.shape.CircleShape
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import kotlinx.coroutines.delay
+          import java.util.Locale
+
+          data class BatterRecord(
+              val name: String,
+              val runs: Int = 0,
+              val balls: Int = 0,
+              val fours: Int = 0,
+              val sixes: Int = 0,
+              val isOut: Boolean = false,
+              val dismissalText: String = "not out"
+          ) {
+              val strikeRate: Double get() = if (balls == 0) 0.0 else (runs.toDouble() * 100.0) / balls
+              val strikeRateFormatted: String get() = String.format(Locale.US, "%.2f", strikeRate)
+          }
+
+          data class BowlerRecord(
+              val name: String,
+              val legalBalls: Int = 0,
+              val maidens: Int = 0,
+              val runsConceded: Int = 0,
+              val wickets: Int = 0,
+              val dotBalls: Int = 0
+          ) {
+              val oversFormatted: String get() = "${legalBalls / 6}.${legalBalls % 6}"
+              val economy: Double get() = if (legalBalls == 0) 0.0 else (runsConceded.toDouble() * 6.0) / legalBalls
+              val economyFormatted: String get() = String.format(Locale.US, "%.2f", economy)
+          }
+
+          data class DeliveryItem(
+              val badge: String,
+              val totalRuns: Int,
+              val isLegal: Boolean,
+              val isWicket: Boolean,
+              val batterName: String,
+              val bowlerName: String
+          )
+
+          data class FallOfWicket(
+              val wicketNum: Int,
+              val score: Int,
+              val batterName: String,
+              val overs: String
+          )
+
+          enum class ScreenNav {
+              SETUP, LIVE, SCORECARD, FINISHED
+          }
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent {
+                      MaterialTheme {
+                          CricHeroesMasterApp()
+                      }
+                  }
+              }
+          }
+
+          @OptIn(ExperimentalMaterial3Api::class)
+          @Composable
+          fun CricHeroesMasterApp() {
+              var currentNav by remember { mutableStateOf(ScreenNav.SETUP) }
+
+              var teamA by remember { mutableStateOf("India") }
+              var teamB by remember { mutableStateOf("Australia") }
+              var oversTotal by remember { mutableStateOf(20) }
+              var tossWinnerTeam by remember { mutableStateOf("India") }
+              var tossDecision by remember { mutableStateOf("Bat") }
+              var strikerInitName by remember { mutableStateOf("Rohit Sharma") }
+              var nonStrikerInitName by remember { mutableStateOf("Virat Kohli") }
+              var bowlerInitName by remember { mutableStateOf("Mitchell Starc") }
+
+              var battingTeam by remember { mutableStateOf("India") }
+              var bowlingTeam by remember { mutableStateOf("Australia") }
+              var totalScore by remember { mutableStateOf(0) }
+              var wicketsLost by remember { mutableStateOf(0) }
+              var totalLegalBalls by remember { mutableStateOf(0) }
+              var inningsNum by remember { mutableStateOf(1) }
+              var targetScore by remember { mutableStateOf<Int?>(null) }
+              var winnerSummary by remember { mutableStateOf("") }
+
+              var wides by remember { mutableStateOf(0) }
+              var noBalls by remember { mutableStateOf(0) }
+              var byes by remember { mutableStateOf(0) }
+              var legByes by remember { mutableStateOf(0) }
+
+              val batters = remember { mutableStateListOf<BatterRecord>() }
+              val bowlers = remember { mutableStateListOf<BowlerRecord>() }
+              val deliveries = remember { mutableStateListOf<DeliveryItem>() }
+              val fowList = remember { mutableStateListOf<FallOfWicket>() }
+
+              var strikerIdx by remember { mutableStateOf(0) }
+              var nonStrikerIdx by remember { mutableStateOf(1) }
+              var bowlerIdx by remember { mutableStateOf(0) }
+
+              var celebrationBanner by remember { mutableStateOf<String?>(null) }
+              var celebrationSub by remember { mutableStateOf("") }
+
+              LaunchedEffect(celebrationBanner) {
+                  if (celebrationBanner != null) {
+                      delay(2200)
+                      celebrationBanner = null
+                  }
+              }
+
+              var openWicketModal by remember { mutableStateOf(false) }
+              var openBowlerModal by remember { mutableStateOf(false) }
+              var dismissalMethod by remember { mutableStateOf("Caught") }
+              var fielderInput by remember { mutableStateOf("") }
+              var incomingBatterInput by remember { mutableStateOf("") }
+              var nextBowlerInput by remember { mutableStateOf("") }
+
+              fun swapEnds() {
+                  val temp = strikerIdx
+                  strikerIdx = nonStrikerIdx
+                  nonStrikerIdx = temp
+              }
+
+              fun checkInningsHandover() {
+                  val currentOversBalls = oversTotal * 6
+                  if (totalLegalBalls >= currentOversBalls || wicketsLost >= 10) {
+                      if (inningsNum == 1) {
+                          targetScore = totalScore + 1
+                          inningsNum = 2
+                          val temp = battingTeam
+                          battingTeam = bowlingTeam
+                          bowlingTeam = temp
+
+                          totalScore = 0
+                          wicketsLost = 0
+                          totalLegalBalls = 0
+                          wides = 0
+                          noBalls = 0
+                          byes = 0
+                          legByes = 0
+                          deliveries.clear()
+                          fowList.clear()
+                          batters.clear()
+                          bowlers.clear()
+
+                          batters.add(BatterRecord("Opener 1"))
+                          batters.add(BatterRecord("Opener 2"))
+                          bowlers.add(BowlerRecord("Opening Bowler"))
+                          strikerIdx = 0
+                          nonStrikerIdx = 1
+                          bowlerIdx = 0
+                      } else {
+                          val target = targetScore ?: 0
+                          winnerSummary = when {
+                              totalScore >= target -> "$battingTeam won by ${10 - wicketsLost} wickets!"
+                              totalScore == target - 1 -> "Match Tied! Thriller in RJ CricX!"
+                              else -> "$bowlingTeam won by ${(target - 1) - totalScore} runs!"
+                          }
+                          currentNav = ScreenNav.FINISHED
+                      }
+                  } else if (inningsNum == 2 && targetScore != null && totalScore >= targetScore!!) {
+                      winnerSummary = "$battingTeam won by ${10 - wicketsLost} wickets!"
+                      currentNav = ScreenNav.FINISHED
+                  }
+              }
+
+              fun recordDelivery(runsBat: Int, runsExtra: Int, isLegal: Boolean, displayBadge: String) {
+                  val striker = batters.getOrNull(strikerIdx) ?: return
+                  val bowler = bowlers.getOrNull(bowlerIdx) ?: return
+
+                  batters[strikerIdx] = striker.copy(
+                      runs = striker.runs + runsBat,
+                      balls = striker.balls + (if (isLegal) 1 else 0),
+                      fours = striker.fours + (if (runsBat == 4) 1 else 0),
+                      sixes = striker.sixes + (if (runsBat == 6) 1 else 0)
+                  )
+
+                  bowlers[bowlerIdx] = bowler.copy(
+                      runsConceded = bowler.runsConceded + (runsBat + runsExtra),
+                      legalBalls = bowler.legalBalls + (if (isLegal) 1 else 0),
+                      dotBalls = bowler.dotBalls + (if (runsBat == 0 && runsExtra == 0 && isLegal) 1 else 0)
+                  )
+
+                  totalScore += (runsBat + runsExtra)
+                  if (isLegal) totalLegalBalls += 1
+
+                  val updatedStriker = batters[strikerIdx]
+                  if (runsBat == 4) {
+                      celebrationBanner = "⚡ BOUNDARY FOUR! ⚡"
+                      celebrationSub = "${updatedStriker.name}  ${updatedStriker.runs}* (${updatedStriker.balls}) | SR: ${updatedStriker.strikeRateFormatted}"
+                  } else if (runsBat == 6) {
+                      celebrationBanner = "🔥 MAXIMUM SIX! 🔥"
+                      celebrationSub = "${updatedStriker.name}  ${updatedStriker.runs}* (${updatedStriker.balls}) | SR: ${updatedStriker.strikeRateFormatted}"
+                  }
+
+                  deliveries.add(
+                      DeliveryItem(
+                          badge = displayBadge,
+                          totalRuns = runsBat + runsExtra,
+                          isLegal = isLegal,
+                          isWicket = false,
+                          batterName = updatedStriker.name,
+                          bowlerName = bowler.name
+                      )
+                  )
+
+                  if (runsBat % 2 != 0) {
+                      swapEnds()
+                  }
+
+                  if (isLegal && totalLegalBalls % 6 == 0) {
+                      swapEnds()
+                      openBowlerModal = true
+                  }
+
+                  checkInningsHandover()
+              }
+
+              fun commitWicket() {
+                  val striker = batters.getOrNull(strikerIdx) ?: return
+                  val bowler = bowlers.getOrNull(bowlerIdx) ?: return
+
+                  val dismissalText = when (dismissalMethod) {
+                      "Bowled" -> "b ${bowler.name}"
+                      "Caught" -> "c ${if (fielderInput.isBlank()) "Fielder" else fielderInput} b ${bowler.name}"
+                      "LBW" -> "lbw b ${bowler.name}"
+                      "Run Out" -> "run out (${if (fielderInput.isBlank()) "Fielder" else fielderInput})"
+                      "Stumped" -> "st ${if (fielderInput.isBlank()) "Keeper" else fielderInput} b ${bowler.name}"
+                      else -> "b ${bowler.name}"
+                  }
+
+                  batters[strikerIdx] = striker.copy(
+                      balls = striker.balls + 1,
+                      isOut = true,
+                      dismissalText = dismissalText
+                  )
+
+                  bowlers[bowlerIdx] = bowler.copy(
+                      wickets = bowler.wickets + (if (dismissalMethod != "Run Out") 1 else 0),
+                      legalBalls = bowler.legalBalls + 1
+                  )
+
+                  totalLegalBalls += 1
+                  wicketsLost += 1
+
+                  fowList.add(
+                      FallOfWicket(
+                          wicketNum = wicketsLost,
+                          score = totalScore,
+                          batterName = striker.name,
+                          overs = "${totalLegalBalls / 6}.${totalLegalBalls % 6}"
+                      )
+                  )
+
+                  celebrationBanner = "🎯 WICKET! OUT! 🎯"
+                  celebrationSub = "${striker.name} - $dismissalText"
+
+                  deliveries.add(
+                      DeliveryItem(
+                          badge = "W",
+                          totalRuns = 0,
+                          isLegal = true,
+                          isWicket = true,
+                          batterName = striker.name,
+                          bowlerName = bowler.name
+                      )
+                  )
+
+                  if (wicketsLost < 10) {
+                      val nameToUse = if (incomingBatterInput.isBlank()) "Player ${batters.size + 1}" else incomingBatterInput
+                      batters.add(BatterRecord(name = nameToUse))
+                      strikerIdx = batters.lastIndex
+                  }
+
+                  fielderInput = ""
+                  incomingBatterInput = ""
+                  openWicketModal = false
+
+                  if (totalLegalBalls % 6 == 0) {
+                      swapEnds()
+                      openBowlerModal = true
+                  }
+
+                  checkInningsHandover()
+              }
+
+              Scaffold(
+                  bottomBar = {
+                      if (currentNav == ScreenNav.LIVE || currentNav == ScreenNav.SCORECARD) {
+                          NavigationBar(containerColor = Color(0xFF071426)) {
+                              NavigationBarItem(
+                                  selected = (currentNav == ScreenNav.LIVE),
+                                  onClick = { currentNav = ScreenNav.LIVE },
+                                  label = { Text("Live Match", color = Color.White) },
+                                  icon = { Text("🏏") }
+                              )
+                              NavigationBarItem(
+                                  selected = (currentNav == ScreenNav.SCORECARD),
+                                  onClick = { currentNav = ScreenNav.SCORECARD },
+                                  label = { Text("Scorecard", color = Color.White) },
+                                  icon = { Text("📊") }
+                              )
+                          }
+                      }
+                  },
+                  containerColor = Color(0xFF030A14)
+              ) { paddingVals ->
+                  Box(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .padding(paddingVals)
+                  ) {
+                      when (currentNav) {
+                          ScreenNav.SETUP -> {
+                              SetupScreen(
+                                  teamA = teamA, onTeamAChange = { teamA = it },
+                                  teamB = teamB, onTeamBChange = { teamB = it },
+                                  overs = oversTotal, onOversChange = { oversTotal = it },
+                                  tossWinner = tossWinnerTeam, onTossWinnerChange = { tossWinnerTeam = it },
+                                  tossChoice = tossChoice, onTossChoiceChange = { tossChoice = it },
+                                  striker = strikerInitName, onStrikerChange = { strikerInitName = it },
+                                  nonStriker = nonStrikerInitName, onNonStrikerChange = { nonStrikerInitName = it },
+                                  bowler = bowlerInitName, onBowlerChange = { bowlerInitName = it },
+                                  onStart = {
+                                      battingTeam = if (tossWinnerTeam == teamA) {
+                                          if (tossChoice == "Bat") teamA else teamB
+                                      } else {
+                                          if (tossChoice == "Bat") teamB else teamA
+                                      }
+                                      bowlingTeam = if (battingTeam == teamA) teamB else teamA
+
+                                      batters.clear()
+                                      bowlers.clear()
+                                      batters.add(BatterRecord(strikerInitName))
+                                      batters.add(BatterRecord(nonStrikerInitName))
+                                      bowlers.add(BowlerRecord(bowlerInitName))
+                                      strikerIdx = 0
+                                      nonStrikerIdx = 1
+                                      bowlerIdx = 0
+                                      currentNav = ScreenNav.LIVE
+                                  }
+                              )
+                          }
+
+                          ScreenNav.LIVE -> {
+                              LiveMatchView(
+                                  battingTeam = battingTeam,
+                                  bowlingTeam = bowlingTeam,
+                                  score = totalScore,
+                                  wickets = wicketsLost,
+                                  legalBalls = totalLegalBalls,
+                                  maxOvers = oversTotal,
+                                  target = targetScore,
+                                  striker = batters.getOrNull(strikerIdx),
+                                  nonStriker = batters.getOrNull(nonStrikerIdx),
+                                  bowler = bowlers.getOrNull(bowlerIdx),
+                                  recentBalls = deliveries,
+                                  onRunScore = { r -> recordDelivery(r, 0, true, "$r") },
+                                  onBoundary = { is4 ->
+                                      val r = if (is4) 4 else 6
+                                      recordDelivery(r, 0, true, "$r")
+                                  },
+                                  onExtra = { ext ->
+                                      when (ext) {
+                                          "WD" -> { wides++; recordDelivery(0, 1, false, "WD") }
+                                          "NB" -> { noBalls++; recordDelivery(0, 1, false, "NB") }
+                                          "B" -> { byes++; recordDelivery(0, 1, true, "1B") }
+                                          "LB" -> { legByes++; recordDelivery(0, 1, true, "1LB") }
+                                      }
+                                  },
+                                  onWicketClick = { openWicketModal = true },
+                                  onUndo = {
+                                      if (deliveries.isNotEmpty()) {
+                                          val last = deliveries.removeLast()
+                                          totalScore -= last.totalRuns
+                                          if (last.isLegal) totalLegalBalls -= 1
+                                          if (last.isWicket) {
+                                              wicketsLost -= 1
+                                              if (fowList.isNotEmpty()) fowList.removeLast()
+                                          }
+                                      }
+                                  }
+                              )
+                          }
+
+                          ScreenNav.SCORECARD -> {
+                              ScorecardTableView(
+                                  battingTeam = battingTeam,
+                                  bowlingTeam = bowlingTeam,
+                                  totalScore = totalScore,
+                                  wickets = wicketsLost,
+                                  legalBalls = totalLegalBalls,
+                                  wides = wides,
+                                  noBalls = noBalls,
+                                  byes = byes,
+                                  legByes = legByes,
+                                  batters = batters,
+                                  bowlers = bowlers,
+                                  fowList = fowList
+                              )
+                          }
+
+                          ScreenNav.FINISHED -> {
+                              ResultSummaryCard(
+                                  result = winnerSummary,
+                                  onRestart = {
+                                      totalScore = 0
+                                      wicketsLost = 0
+                                      totalLegalBalls = 0
+                                      inningsNum = 1
+                                      targetScore = null
+                                      deliveries.clear()
+                                      fowList.clear()
+                                      batters.clear()
+                                      bowlers.clear()
+                                      currentNav = ScreenNav.SETUP
+                                  }
+                              )
+                          }
+                      }
+
+                      AnimatedVisibility(
+                          visible = (celebrationBanner != null),
+                          enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+                          exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+                          modifier = Modifier
+                              .align(Alignment.TopCenter)
+                              .padding(top = 24.dp)
+                      ) {
+                          val (cardBg, borderColor) = when {
+                              celebrationBanner?.contains("FOUR") == true -> Color(0xFF00C853) to Color(0xFFB9F6CA)
+                              celebrationBanner?.contains("SIX") == true -> Color(0xFFFFAB00) to Color(0xFFFFF8E1)
+                              else -> Color(0xFFD50000) to Color(0xFFFF8A80)
+                          }
+
+                          Card(
+                              colors = CardDefaults.cardColors(containerColor = cardBg),
+                              shape = RoundedCornerShape(16.dp),
+                              modifier = Modifier
+                                  .fillMaxWidth(0.92f)
+                                  .border(2.dp, borderColor, RoundedCornerShape(16.dp))
+                          ) {
+                              Column(
+                                  modifier = Modifier
+                                      .fillMaxWidth()
+                                      .padding(16.dp),
+                                  horizontalAlignment = Alignment.CenterHorizontally
+                              ) {
+                                  Text(
+                                      text = celebrationBanner ?: "",
+                                      color = Color.White,
+                                      fontSize = 24.sp,
+                                      fontWeight = FontWeight.Black
+                                  )
+                                  if (celebrationSub.isNotEmpty()) {
+                                      Spacer(modifier = Modifier.height(4.dp))
+                                      Text(
+                                          text = celebrationSub,
+                                          color = Color.White.copy(alpha = 0.95f),
+                                          fontSize = 15.sp,
+                                          fontWeight = FontWeight.Bold
+                                      )
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+
+              if (openWicketModal) {
+                  AlertDialog(
+                      onDismissRequest = { openWicketModal = false },
+                      title = { Text("WICKET DETAILS", fontWeight = FontWeight.Bold, color = Color(0xFFFF5252)) },
+                      text = {
+                          Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                              Text("Select Dismissal Type:", fontWeight = FontWeight.SemiBold)
+                              Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                  listOf("Caught", "Bowled", "LBW").forEach { m ->
+                                      FilterChip(
+                                          selected = (dismissalMethod == m),
+                                          onClick = { dismissalMethod = m },
+                                          label = { Text(m, fontSize = 12.sp) }
+                                      )
+                                  }
+                              }
+                              Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                  listOf("Run Out", "Stumped").forEach { m ->
+                                      FilterChip(
+                                          selected = (dismissalMethod == m),
+                                          onClick = { dismissalMethod = m },
+                                          label = { Text(m, fontSize = 12.sp) }
+                                      )
+                                  }
+                              }
+
+                              if (dismissalMethod == "Caught" || dismissalMethod == "Run Out" || dismissalMethod == "Stumped") {
+                                  OutlinedTextField(
+                                      value = fielderInput,
+                                      onValueChange = { fielderInput = it },
+                                      label = { Text("Fielder / Catcher Name") },
+                                      placeholder = { Text("e.g. Jadeja") },
+                                      modifier = Modifier.fillMaxWidth()
+                                  )
+                              }
+
+                              OutlinedTextField(
+                                  value = incomingBatterInput,
+                                  onValueChange = { incomingBatterInput = it },
+                                  label = { Text("Next Batter Name") },
+                                  placeholder = { Text("e.g. Suryakumar") },
+                                  modifier = Modifier.fillMaxWidth()
+                              )
+                          }
+                      },
+                      confirmButton = {
+                          Button(
+                              onClick = { commitWicket() },
+                              colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+                          ) {
+                              Text("CONFIRM OUT")
+                          }
+                      },
+                      dismissButton = {
+                          TextButton(onClick = { openWicketModal = false }) { Text("Cancel") }
+                      }
+                  )
+              }
+
+              if (openBowlerModal) {
+                  AlertDialog(
+                      onDismissRequest = { },
+                      title = { Text("Over Finished!", fontWeight = FontWeight.Bold) },
+                      text = {
+                          Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                              Text("Select / Enter Next Bowler:")
+                              OutlinedTextField(
+                                  value = nextBowlerInput,
+                                  onValueChange = { nextBowlerInput = it },
+                                  placeholder = { Text("Bowler Name") },
+                                  modifier = Modifier.fillMaxWidth()
+                              )
+                          }
+                      },
+                      confirmButton = {
+                          Button(
+                              onClick = {
+                                  val chosenName = if (nextBowlerInput.isBlank()) "Bowler ${bowlers.size + 1}" else nextBowlerInput
+                                  val existing = bowlers.indexOfFirst { it.name.equals(chosenName, ignoreCase = true) }
+                                  if (existing != -1) {
+                                      bowlerIdx = existing
+                                  } else {
+                                      bowlers.add(BowlerRecord(name = chosenName))
+                                      bowlerIdx = bowlers.lastIndex
+                                  }
+                                  nextBowlerInput = ""
+                                  openBowlerModal = false
+                              }
+                          ) {
+                              Text("START NEXT OVER")
+                          }
+                      }
+                  )
+              }
+          }
+
+          @OptIn(ExperimentalMaterial3Api::class)
+          @Composable
+          fun SetupScreen(
+              teamA: String, onTeamAChange: (String) -> Unit,
+              teamB: String, onTeamBChange: (String) -> Unit,
+              overs: Int, onOversChange: (Int) -> Unit,
+              tossWinner: String, onTossWinnerChange: (String) -> Unit,
+              tossChoice: String, onTossChoiceChange: (String) -> Unit,
+              striker: String, onStrikerChange: (String) -> Unit,
+              nonStriker: String, onNonStrikerChange: (String) -> Unit,
+              bowler: String, onBowlerChange: (String) -> Unit,
+              onStart: () -> Unit
+          ) {
+              LazyColumn(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .padding(16.dp),
+                  verticalArrangement = Arrangement.spacedBy(14.dp)
+              ) {
+                  item {
+                      Text("RJ CRICX", color = Color(0xFF00E676), fontSize = 28.sp, fontWeight = FontWeight.Black)
+                      Text("CricHeroes-Grade Match Setup", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                      Spacer(modifier = Modifier.height(4.dp))
+                  }
+                  item {
+                      OutlinedTextField(
+                          value = teamA,
+                          onValueChange = onTeamAChange,
+                          label = { Text("Team 1 Name") },
+                          modifier = Modifier.fillMaxWidth()
+                      )
+                  }
+                  item {
+                      OutlinedTextField(
+                          value = teamB,
+                          onValueChange = onTeamBChange,
+                          label = { Text("Team 2 Name") },
+                          modifier = Modifier.fillMaxWidth()
+                      )
+                  }
+                  item {
+                      Text("Match Overs:", color = Color.LightGray)
+                      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                          listOf(5, 10, 20, 50).forEach { o ->
+                              FilterChip(
+                                  selected = (overs == o),
+                                  onClick = { onOversChange(o) },
+                                  label = { Text("$o Overs") }
+                              )
+                          }
+                      }
+                  }
+                  item {
+                      Text("Toss Winner:", color = Color.LightGray)
+                      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                          listOf(teamA, teamB).forEach { t ->
+                              FilterChip(
+                                  selected = (tossWinner == t),
+                                  onClick = { onTossWinnerChange(t) },
+                                  label = { Text(t) }
+                              )
+                          }
+                      }
+                  }
+                  item {
+                      Text("Elected To:", color = Color.LightGray)
+                      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                          listOf("Bat", "Bowl").forEach { d ->
+                              FilterChip(
+                                  selected = (tossChoice == d),
+                                  onClick = { onTossChoiceChange(d) },
+                                  label = { Text(d) }
+                              )
+                          }
+                      }
+                  }
+                  item {
+                      Divider(color = Color(0xFF1E2D4A), modifier = Modifier.padding(vertical = 4.dp))
+                      Text("Opening Players:", color = Color(0xFFFFD54F), fontWeight = FontWeight.Bold)
+                  }
+                  item {
+                      OutlinedTextField(
+                          value = striker,
+                          onValueChange = onStrikerChange,
+                          label = { Text("Striker Name (Opening Batter)") },
+                          modifier = Modifier.fillMaxWidth()
+                      )
+                  }
+                  item {
+                      OutlinedTextField(
+                          value = nonStriker,
+                          onValueChange = onNonStrikerChange,
+                          label = { Text("Non-Striker Name") },
+                          modifier = Modifier.fillMaxWidth()
+                      )
+                  }
+                  item {
+                      OutlinedTextField(
+                          value = bowler,
+                          onValueChange = onBowlerChange,
+                          label = { Text("Opening Bowler Name") },
+                          modifier = Modifier.fillMaxWidth()
+                      )
+                  }
+                  item {
+                      Spacer(modifier = Modifier.height(10.dp))
+                      Button(
+                          onClick = onStart,
+                          modifier = Modifier.fillMaxWidth().height(52.dp),
+                          colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676))
+                      ) {
+                          Text("START MATCH", color = Color.Black, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun LiveMatchView(
+              battingTeam: String,
+              bowlingTeam: String,
+              score: Int,
+              wickets: Int,
+              legalBalls: Int,
+              maxOvers: Int,
+              target: Int?,
+              striker: BatterRecord?,
+              nonStriker: BatterRecord?,
+              bowler: BowlerRecord?,
+              recentBalls: List<DeliveryItem>,
+              onRunScore: (Int) -> Unit,
+              onBoundary: (Boolean) -> Unit,
+              onExtra: (String) -> Unit,
+              onWicketClick: () -> Unit,
+              onUndo: () -> Unit
+          ) {
+              val crr = if (legalBalls == 0) 0.0 else (score.toDouble() * 6.0) / legalBalls
+              val rrr = if (target != null) {
+                  val remRuns = (target - score).coerceAtLeast(0)
+                  val remBalls = ((maxOvers * 6) - legalBalls).coerceAtLeast(1)
+                  (remRuns.toDouble() * 6.0) / remBalls
+              } else null
+
+              Column(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .padding(16.dp),
+                  verticalArrangement = Arrangement.SpaceBetween
+              ) {
+                  Card(
+                      modifier = Modifier.fillMaxWidth(),
+                      colors = CardDefaults.cardColors(containerColor = Color(0xFF0E1E36)),
+                      shape = RoundedCornerShape(16.dp)
+                  ) {
+                      Column(modifier = Modifier.padding(16.dp)) {
+                          Row(
+                              modifier = Modifier.fillMaxWidth(),
+                              horizontalArrangement = Arrangement.SpaceBetween
+                          ) {
+                              Text(text = battingTeam, color = Color.LightGray, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                              if (target != null) {
+                                  Text(
+                                      text = "Target: $target | RRR: ${String.format(Locale.US, "%.2f", rrr)}",
+                                      color = Color(0xFFFFD54F),
+                                      fontWeight = FontWeight.Bold,
+                                      fontSize = 13.sp
+                                  )
+                              } else {
+                                  Text(
+                                      text = "CRR: ${String.format(Locale.US, "%.2f", crr)}",
+                                      color = Color(0xFF00E676),
+                                      fontWeight = FontWeight.Bold,
+                                      fontSize = 13.sp
+                                  )
+                              }
+                          }
+                          Row(
+                              modifier = Modifier.fillMaxWidth(),
+                              horizontalArrangement = Arrangement.SpaceBetween,
+                              verticalAlignment = Alignment.CenterVertically
+                          ) {
+                              Text(
+                                  text = "$score / $wickets",
+                                  color = Color.White,
+                                  fontSize = 44.sp,
+                                  fontWeight = FontWeight.Black
+                              )
+                              Column(horizontalAlignment = Alignment.End) {
+                                  Text(text = "OVERS", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                  Text(
+                                      text = "${legalBalls / 6}.${legalBalls % 6} / $maxOvers",
+                                      color = Color(0xFF00E676),
+                                      fontSize = 22.sp,
+                                      fontWeight = FontWeight.Bold
+                                  )
+                              }
+                          }
+                      }
+                  }
+
+                  Card(
+                      modifier = Modifier.fillMaxWidth(),
+                      colors = CardDefaults.cardColors(containerColor = Color(0xFF0B172A)),
+                      shape = RoundedCornerShape(12.dp)
+                  ) {
+                      Column(modifier = Modifier.padding(12.dp)) {
+                          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                              Text("🏏 ${striker?.name ?: "Striker"} *", color = Color.White, fontWeight = FontWeight.Bold)
+                              Text(
+                                  "${striker?.runs ?: 0} (${striker?.balls ?: 0}) | 4s:${striker?.fours ?: 0} 6s:${striker?.sixes ?: 0}",
+                                  color = Color(0xFF00E676),
+                                  fontWeight = FontWeight.Bold
+                              )
+                          }
+                          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                              Text("SR: ${striker?.strikeRateFormatted ?: "0.00"}", color = Color(0xFFFFD54F), fontSize = 12.sp)
+                          }
+
+                          Spacer(modifier = Modifier.height(4.dp))
+
+                          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                              Text("   ${nonStriker?.name ?: "Non-Striker"}", color = Color.Gray)
+                              Text(
+                                  "${nonStriker?.runs ?: 0} (${nonStriker?.balls ?: 0}) | SR: ${nonStriker?.strikeRateFormatted ?: "0.00"}",
+                                  color = Color.Gray,
+                                  fontSize = 13.sp
+                              )
+                          }
+
+                          Divider(color = Color(0xFF1E2D4A), modifier = Modifier.padding(vertical = 8.dp))
+
+                          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                              Text("⚾ ${bowler?.name ?: "Bowler"}", color = Color(0xFFFFD54F), fontWeight = FontWeight.Bold)
+                              Text(
+                                  "${bowler?.wickets ?: 0}-${bowler?.runsConceded ?: 0} (${bowler?.oversFormatted ?: "0.0"})",
+                                  color = Color.White,
+                                  fontWeight = FontWeight.Bold
+                              )
+                          }
+                          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                              Text(
+                                  "Econ: ${bowler?.economyFormatted ?: "0.00"} | Dots: ${bowler?.dotBalls ?: 0}",
+                                  color = Color.LightGray,
+                                  fontSize = 12.sp
+                              )
+                          }
+                      }
+                  }
+
+                  LazyRow(
+                      horizontalArrangement = Arrangement.spacedBy(8.dp),
+                      modifier = Modifier.fillMaxWidth()
+                  ) {
+                      items(recentBalls.takeLast(10)) { d ->
+                          val bg = when {
+                              d.isWicket -> Color(0xFFD50000)
+                              d.badge == "4" -> Color(0xFF00C853)
+                              d.badge == "6" -> Color(0xFFFFAB00)
+                              d.badge == "WD" || d.badge == "NB" -> Color(0xFFAA00FF)
+                              d.badge == "0" -> Color(0xFF263238)
+                              else -> Color(0xFF1E2D4A)
+                          }
+                          Box(
+                              modifier = Modifier.size(36.dp).background(bg, CircleShape),
+                              contentAlignment = Alignment.Center
+                          ) {
+                              Text(d.badge, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                          }
+                      }
+                  }
+
+                  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                          listOf(0, 1, 2, 3).forEach { r ->
+                              Button(
+                                  onClick = { onRunScore(r) },
+                                  modifier = Modifier.weight(1f).height(48.dp),
+                                  colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF132238)),
+                                  shape = RoundedCornerShape(10.dp)
+                              ) { Text("$r", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+                          }
+                      }
+                      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                          Button(
+                              onClick = { onBoundary(true) },
+                              modifier = Modifier.weight(1f).height(48.dp),
+                              colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                              shape = RoundedCornerShape(10.dp)
+                          ) { Text("4", fontSize = 20.sp, fontWeight = FontWeight.Black) }
+
+                          Button(
+                              onClick = { onBoundary(false) },
+                              modifier = Modifier.weight(1f).height(48.dp),
+                              colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57F17)),
+                              shape = RoundedCornerShape(10.dp)
+                          ) { Text("6", fontSize = 20.sp, fontWeight = FontWeight.Black) }
+
+                          Button(
+                              onClick = onWicketClick,
+                              modifier = Modifier.weight(1f).height(48.dp),
+                              colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
+                              shape = RoundedCornerShape(10.dp)
+                          ) { Text("OUT", fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+
+                          Button(
+                              onClick = onUndo,
+                              modifier = Modifier.weight(1f).height(48.dp),
+                              colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F)),
+                              shape = RoundedCornerShape(10.dp)
+                          ) { Text("UNDO", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                      }
+                      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                          Button(onClick = { onExtra("WD") }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2D4A))) { Text("WD") }
+                          Button(onClick = { onExtra("NB") }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2D4A))) { Text("NB") }
+                          Button(onClick = { onExtra("LB") }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2D4A))) { Text("LB") }
+                          Button(onClick = { onExtra("B") }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2D4A))) { Text("BYE") }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun ScorecardTableView(
+              battingTeam: String,
+              bowlingTeam: String,
+              totalScore: Int,
+              wickets: Int,
+              legalBalls: Int,
+              wides: Int,
+              noBalls: Int,
+              byes: Int,
+              legByes: Int,
+              batters: List<BatterRecord>,
+              bowlers: List<BowlerRecord>,
+              fowList: List<FallOfWicket>
+          ) {
+              LazyColumn(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .padding(16.dp),
+                  verticalArrangement = Arrangement.spacedBy(14.dp)
+              ) {
+                  item {
+                      Text("INNINGS SCORECARD", color = Color(0xFF00E676), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                      Text(
+                          "$battingTeam: $totalScore / $wickets (${legalBalls / 6}.${legalBalls % 6} Overs)",
+                          color = Color.White,
+                          fontSize = 16.sp,
+                          fontWeight = FontWeight.Black
+                      )
+                      Divider(color = Color(0xFF1E2D4A), modifier = Modifier.padding(vertical = 6.dp))
+                      Text("BATTING CARD", color = Color(0xFFFFD54F), fontWeight = FontWeight.Bold)
+                  }
+
+                  items(batters) { b ->
+                      Card(
+                          modifier = Modifier.fillMaxWidth(),
+                          colors = CardDefaults.cardColors(containerColor = Color(0xFF0E1E36))
+                      ) {
+                          Row(
+                              modifier = Modifier.fillMaxWidth().padding(12.dp),
+                              horizontalArrangement = Arrangement.SpaceBetween,
+                              verticalAlignment = Alignment.CenterVertically
+                          ) {
+                              Column(modifier = Modifier.weight(1.5f)) {
+                                  Text(b.name, color = Color.White, fontWeight = FontWeight.Bold)
+                                  Text(b.dismissalText, color = Color.Gray, fontSize = 11.sp)
+                              }
+                              Row(modifier = Modifier.weight(1.4f), horizontalArrangement = Arrangement.SpaceBetween) {
+                                  Text("${b.runs}", color = Color.White, fontWeight = FontWeight.Black)
+                                  Text("(${b.balls})", color = Color.LightGray)
+                                  Text("4s:${b.fours}", color = Color.Gray, fontSize = 12.sp)
+                                  Text("6s:${b.sixes}", color = Color.Gray, fontSize = 12.sp)
+                                  Text(b.strikeRateFormatted, color = Color(0xFF00E676), fontWeight = FontWeight.Bold)
+                              }
+                          }
+                      }
+                  }
+
+                  item {
+                      Spacer(modifier = Modifier.height(6.dp))
+                      Text("BOWLING CARD ($bowlingTeam)", color = Color(0xFFFFD54F), fontWeight = FontWeight.Bold)
+                  }
+
+                  items(bowlers) { bw ->
+                      Card(
+                          modifier = Modifier.fillMaxWidth(),
+                          colors = CardDefaults.cardColors(containerColor = Color(0xFF0B172A))
+                      ) {
+                          Row(
+                              modifier = Modifier.fillMaxWidth().padding(12.dp),
+                              horizontalArrangement = Arrangement.SpaceBetween,
+                              verticalAlignment = Alignment.CenterVertically
+                          ) {
+                              Text(bw.name, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1.2f))
+                              Row(modifier = Modifier.weight(1.8f), horizontalArrangement = Arrangement.SpaceBetween) {
+                                  Text("O: ${bw.oversFormatted}", color = Color.LightGray)
+                                  Text("M: ${bw.maidens}", color = Color.LightGray)
+                                  Text("R: ${bw.runsConceded}", color = Color.White, fontWeight = FontWeight.Bold)
+                                  Text("W: ${bw.wickets}", color = Color(0xFFFF5252), fontWeight = FontWeight.Black)
+                                  Text("E: ${bw.economyFormatted}", color = Color(0xFFFFD54F))
+                              }
+                          }
+                      }
+                  }
+
+                  item {
+                      Spacer(modifier = Modifier.height(6.dp))
+                      Text("EXTRAS & FALL OF WICKETS", color = Color(0xFFFFD54F), fontWeight = FontWeight.Bold)
+                      Card(
+                          modifier = Modifier.fillMaxWidth(),
+                          colors = CardDefaults.cardColors(containerColor = Color(0xFF0E1E36))
+                      ) {
+                          Column(modifier = Modifier.padding(12.dp)) {
+                              Text("Extras: ${wides + noBalls + byes + legByes} (wd $wides, nb $noBalls, lb $legByes, b $byes)", color = Color.White)
+                              Spacer(modifier = Modifier.height(8.dp))
+                              Divider(color = Color(0xFF1E2D4A))
+                              Spacer(modifier = Modifier.height(8.dp))
+                              Text("Fall of Wickets:", color = Color.LightGray, fontWeight = FontWeight.Bold)
+                              if (fowList.isEmpty()) {
+                                  Text("No wickets fallen yet", color = Color.Gray, fontSize = 12.sp)
+                              } else {
+                                  fowList.forEach { f ->
+                                      Text("${f.wicketNum}-${f.score} (${f.batterName}, ${f.overs} ov)", color = Color(0xFFFFD54F), fontSize = 12.sp)
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun ResultSummaryCard(result: String, onRestart: () -> Unit) {
+              Column(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .padding(24.dp),
+                  verticalArrangement = Arrangement.Center,
+                  horizontalAlignment = Alignment.CenterHorizontally
+              ) {
+                  Text("🏆", fontSize = 72.sp)
+                  Spacer(modifier = Modifier.height(16.dp))
+                  Text("MATCH CONCLUDED", color = Color(0xFF00E676), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                  Spacer(modifier = Modifier.height(8.dp))
+                  Text(result, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
+                  Spacer(modifier = Modifier.height(40.dp))
+                  Button(
+                      onClick = onRestart,
+                      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
+                      modifier = Modifier.fillMaxWidth().height(52.dp)
+                  ) {
+                      Text("START NEW MATCH", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                  }
+              }
+          }
+          EOF
+
+      # Step 2: Set up JDK 17
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # Step 3: Accept Android SDK Licenses
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      # Step 4: Setup Official Gradle
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
+          validate-wrappers: false
+
+      # Step 5: Create Keystore
+      - name: Create Keystore for Signing
+        run: |
+          rm -f playstore-release.keystore
+          keytool -genkey -v -keystore playstore-release.keystore \
+            -alias rjcricx \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass "CricXPass@2026" \
+            -keypass "CricXPass@2026" \
+            -dname "CN=RJ CricX, O=Cricket App, C=IN"
+
+      # Step 6: Build Testing APK Directly with Gradle
+      - name: Build Debug APK
+        run: gradle assembleDebug --stacktrace
+
+      # Step 7: Build Signed Play Store AAB Bundle Directly with Gradle
+      - name: Build Play Store AAB
+        run: gradle bundleRelease --stacktrace
+
+      # Step 8: Upload Play Store AAB
+      - name: Upload Play Store AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: RJ-CricX-PlayStore-Ready-AAB
+          path: app/build/outputs/bundle/release/app-release.aab
+
+      # Step 9: Upload Testing APK
+      - name: Upload Testing APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RJ-CricX-Direct-Install-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      # Step 10: Save Keystore Backup
+      - name: Save Keystore Backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: Keystore-Key-KeepSafe
+          path: playstore-release.keystore
