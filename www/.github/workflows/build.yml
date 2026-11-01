@@ -1,0 +1,57 @@
+name: Build RJ CricX APK and AAB
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Capacitor & Android Project
+        run: |
+          npm init -y
+          npm install @capacitor/core@6.1.2 @capacitor/cli@6.1.2 @capacitor/android@6.1.2
+          npx cap init "RJ CricX" "com.rjcricx.official" --web-dir www
+          npx cap add android
+          sed -i '/google-services/d' android/build.gradle
+          sed -i '/google-services/d' android/app/build.gradle || true
+          npx cap sync android
+
+      - name: Build Debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Build Play Store AAB
+        run: |
+          cd android
+          ./gradlew bundleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RJ-CricX-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload Play Store AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: RJ-CricX-PlayStore-AAB
+          path: android/app/build/outputs/bundle/debug/app-debug.aab
