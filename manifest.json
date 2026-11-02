@@ -1,0 +1,21 @@
+{
+  "name": "RJ CricX - Live Cricket Scorer",
+  "short_name": "RJ CricX",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#070b13",
+  "theme_color": "#070b13",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://img.icons8.com/color/192/cricket.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://img.icons8.com/color/512/cricket.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
