@@ -1,0 +1,209 @@
+name: Build RJ CricX Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
+
+      - name: Create Native Android Project Files
+        run: |
+          mkdir -p app/src/main/java/com/rjcricx/app
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/res/drawable
+
+          cp index.html app/src/main/assets/index.html
+
+          # 1. Root gradle.properties
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2048m
+          android.useAndroidX=true
+          EOF
+
+          # 2. Root build.gradle
+          cat << 'EOF' > build.gradle
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
+
+          # 3. settings.gradle
+          cat << 'EOF' > settings.gradle
+          include ':app'
+          rootProject.name = 'RJCricX'
+          EOF
+
+          # 4. Premium Red Cricket Ball Icon (Zero Green)
+          cat << 'EOF' > app/src/main/res/drawable/app_icon.xml
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path android:fillColor="#070B13" android:pathData="M0,0h108v108h-108z"/>
+              <path android:strokeColor="#FFD700" android:strokeWidth="3"
+                  android:pathData="M54,54 m-44,0 a44,44 0 1,0 88,0 a44,44 0 1,0 -88,0"/>
+              <path android:fillColor="#C62828" android:pathData="M54,54 m-38,0 a38,38 0 1,0 76,0 a38,38 0 1,0 -76,0"/>
+              <path android:strokeColor="#FFFFFF" android:strokeWidth="2.8" android:strokeLineCap="round"
+                  android:pathData="M54,16 C45,36 45,72 54,92"/>
+          </vector>
+          EOF
+
+          # 5. app/build.gradle (Version 2.0.0)
+          cat << 'EOF' > app/build.gradle
+          apply plugin: 'com.android.application'
+
+          android {
+              namespace 'com.rjcricx.app'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.rjcricx.app"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 2
+                  versionName "2.0.0"
+              }
+
+              buildTypes {
+                  debug { minifyEnabled false }
+                  release { minifyEnabled false }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+
+          dependencies {}
+          EOF
+
+          # 6. AndroidManifest.xml
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <application
+                  android:allowBackup="true"
+                  android:icon="@drawable/app_icon"
+                  android:label="RJ CricX"
+                  android:supportsRtl="true"
+                  android:hardwareAccelerated="true"
+                  android:theme="@android:style/Theme.Material.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:screenOrientation="portrait">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          # 7. MainActivity.java (Zero Cache - Instant Refresh)
+          cat << 'EOF' > app/src/main/java/com/rjcricx/app/MainActivity.java
+          package com.rjcricx.app;
+
+          import android.annotation.SuppressLint;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.webkit.WebChromeClient;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+
+              @SuppressLint("SetJavaScriptEnabled")
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  webView = new WebView(this);
+                  setContentView(webView);
+
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setAllowFileAccess(true);
+                  settings.setAllowContentAccess(true);
+                  settings.setMediaPlaybackRequiresUserGesture(false);
+                  settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+                  webView.clearCache(true);
+
+                  webView.setWebViewClient(new WebViewClient());
+                  webView.setWebChromeClient(new WebChromeClient());
+                  webView.loadUrl("file:///android_asset/index.html");
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+          }
+          EOF
+
+      - name: Build Android APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload Installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RJ-CricX-Installable-APK
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        continue-on-error: true
+        with:
+          tag_name: v2.0.0-build-${{ github.run_number }}
+          name: "RJ CricX Pro (v2.0.0)"
+          draft: false
+          prerelease: false
+          files: app/build/outputs/apk/debug/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
